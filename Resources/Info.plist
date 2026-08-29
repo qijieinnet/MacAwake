@@ -4,15 +4,17 @@
 <dict>
 	<key>CFBundleDevelopmentRegion</key>
 	<string>zh_CN</string>
+	<key>CFBundleDisplayName</key>
+	<string>MacAwake</string>
 	<key>CFBundleExecutable</key>
 	<string>MacAwake</string>
+	<key>CFBundleIconFile</key>
+	<string>AppIcon</string>
 	<key>CFBundleIdentifier</key>
 	<string>com.macawake.MacAwake</string>
 	<key>CFBundleInfoDictionaryVersion</key>
 	<string>6.0</string>
 	<key>CFBundleName</key>
-	<string>MacAwake</string>
-	<key>CFBundleDisplayName</key>
 	<string>MacAwake</string>
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>

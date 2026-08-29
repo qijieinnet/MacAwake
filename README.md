@@ -1,8 +1,8 @@
-# MacAwake
-
 <p align="center">
-  <img src="docs/icon-preview.png" width="560" alt="菜单栏图标：小宠物在键盘上打字">
+  <img src="docs/app-icon.png" width="150" alt="MacAwake">
 </p>
+
+<h1 align="center">MacAwake</h1>
 
 <p align="center">
   <a href="https://github.com/qijieinnet/MacAwake/actions/workflows/build.yml"><img src="https://github.com/qijieinnet/MacAwake/actions/workflows/build.yml/badge.svg" alt="Build"></a>
@@ -103,11 +103,18 @@ Codex 桌面 app 只在「插件详情页」展示 hooks，没有给用户级 ho
 - **按进程**：进程名/路径匹配
 - 每 8 秒采样一次
 
+### 菜单栏图标
+
+<p align="center">
+  <img src="docs/icon-preview.png" width="520" alt="小宠物在键盘上打字的动画帧">
+</p>
+
+空闲时是月亮，有任务时换成小宠物在键盘上打字。造型可选小猫 / 小兔 / 小熊（靠耳朵区分）或咖啡（静态），动画也能整个关掉。
+
 ### 其他
 
 - 开机自启（SMAppService，失败自动回退 LaunchAgent）
 - 菜单栏可显示倒计时（默认关闭）
-- 图标造型：小猫 / 小兔 / 小熊 / 咖啡（静态），动画可关
 
 ---
 
@@ -142,6 +149,12 @@ cp -R dist/MacAwake.app /Applications/ && open /Applications/MacAwake.app
 ./package.sh 1.0.0
 ```
 
+app 图标是代码画的（`Tools/GenerateIcon.swift`），改完设计重新生成：
+
+```bash
+./Tools/make-icon.sh
+```
+
 ### 发布
 
 推一个 `v` 开头的标签，GitHub Actions 会自动构建三个 DMG 并创建 Release：
@@ -170,7 +183,8 @@ git tag v1.0.0 && git push origin v1.0.0
 **菜单栏**
 
 - 用 `NSStatusItem` + `NSPopover`，不用 SwiftUI 的 `MenuBarExtra` —— 后者面板尺寸不可控（`ScrollView` 放进去会塌成 0 高度），且每次 label 变化都要重建状态栏项。
-- 图标是手绘的（`PetIcon.swift`），不是 SF Symbols —— 没有「动物在键盘上打字」这种组合符号，把两个符号叠进 22×16pt 会糊成一团。
+- 菜单栏图标和 app 图标都是代码画的（`PetIcon.swift` / `Tools/GenerateIcon.swift`），不是 SF Symbols —— 没有「动物在键盘上打字」这种组合符号，把两个符号叠进 22×16pt 会糊成一团。
+- app 图标底板用超椭圆（`|x/a|^n + |y/b|^n = 1`，n=5）而不是圆角矩形 —— 苹果用的是连续曲率方形，普通圆角矩形看着就是不对。
 - 菜单栏动画的成本约「**每 fps 1% CPU**」，且**全部来自 `button.image` 赋值触发的状态栏重绘**（约 8ms 一次），跟 SwiftUI 无关 —— 让定时器照跑但不换图，只要 0.6%。所以做成间歇打字：敲约 2.6 秒、歇约 9 秒，实测均摊 **1.7%**（关掉动画是 0.9%）。
 
 ---

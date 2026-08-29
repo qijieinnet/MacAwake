@@ -21,6 +21,11 @@ rm -rf "$APP"
 mkdir -p "${APP}/Contents/MacOS" "${APP}/Contents/Resources"
 cp "$BIN" "${APP}/Contents/MacOS/${APP_NAME}"
 cp Resources/Info.plist "${APP}/Contents/Info.plist"
+if [ -f Resources/AppIcon.icns ]; then
+  cp Resources/AppIcon.icns "${APP}/Contents/Resources/AppIcon.icns"
+else
+  echo "警告: 缺少 Resources/AppIcon.icns，跑 ./Tools/make-icon.sh 生成" >&2
+fi
 printf 'APPL????' > "${APP}/Contents/PkgInfo"
 
 echo "==> ad-hoc 签名"
