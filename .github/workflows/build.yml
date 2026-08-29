@@ -1,0 +1,120 @@
+name: Build
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: 构建 Universal Binary 并打包 DMG
+    runs-on: macos-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 环境信息
+        run: |
+          sw_vers
+          xcodebuild -version
+          swift --version
+
+      - name: 确定版本号
+        id: ver
+        run: |
+          if [[ "${GITHUB_REF}" == refs/tags/v* ]]; then
+            VERSION="${GITHUB_REF#refs/tags/v}"
+          else
+            VERSION="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' Resources/Info.plist)-dev.$(git rev-parse --short HEAD)"
+          fi
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+          echo "版本号: ${VERSION}"
+
+      - name: 写入版本号
+        run: |
+          /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString ${{ steps.ver.outputs.version }}" Resources/Info.plist
+          /usr/libexec/PlistBuddy -c "Set :CFBundleVersion ${{ github.run_number }}" Resources/Info.plist
+
+      - name: 构建
+        run: ./build.sh
+
+      - name: 校验产物同时含 arm64 与 x86_64
+        run: |
+          BIN=dist/MacAwake.app/Contents/MacOS/MacAwake
+          lipo -info "$BIN"
+          lipo -archs "$BIN" | grep -qw arm64  || { echo "缺 arm64 切片"  >&2; exit 1; }
+          lipo -archs "$BIN" | grep -qw x86_64 || { echo "缺 x86_64 切片" >&2; exit 1; }
+          codesign -v "dist/MacAwake.app" && echo "签名有效"
+
+      - name: 打包 DMG
+        run: ./package.sh "${{ steps.ver.outputs.version }}"
+
+      - name: 校验每个 DMG 里的架构切片
+        run: |
+          set -e
+          check() {
+            local dmg="$1" want="$2" mnt
+            mnt="$(mktemp -d)"
+            hdiutil attach -nobrowse -quiet -mountpoint "$mnt" "$dmg"
+            local got; got="$(lipo -archs "$mnt/MacAwake.app/Contents/MacOS/MacAwake")"
+            echo "  $(basename "$dmg") -> ${got}"
+            [ "$got" = "$want" ] || { echo "架构不符，期望 ${want}" >&2; hdiutil detach -quiet "$mnt"; exit 1; }
+            codesign -v "$mnt/MacAwake.app"
+            hdiutil detach -quiet "$mnt"
+          }
+          V="${{ steps.ver.outputs.version }}"
+          check "dist/MacAwake-${V}-Universal.dmg" "x86_64 arm64"
+          check "dist/MacAwake-${V}-arm64.dmg"     "arm64"
+          check "dist/MacAwake-${V}-x86_64.dmg"    "x86_64"
+
+      - name: 上传构建产物
+        uses: actions/upload-artifact@v4
+        with:
+          name: MacAwake-${{ steps.ver.outputs.version }}
+          path: dist/*.dmg
+          if-no-files-found: error
+
+      - name: 发布 Release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*.dmg
+          draft: false
+          generate_release_notes: true
+          body: |
+            ## 下载哪个
+
+            | 文件 | 适用机型 |
+            |---|---|
+            | `MacAwake-${{ steps.ver.outputs.version }}-Universal.dmg` | **不确定就下这个**，Apple Silicon 和 Intel 都能跑 |
+            | `MacAwake-${{ steps.ver.outputs.version }}-arm64.dmg` | 仅 Apple Silicon（M 系列），体积更小 |
+            | `MacAwake-${{ steps.ver.outputs.version }}-x86_64.dmg` | 仅 Intel Mac |
+
+            需要 macOS 13 或更新版本。
+
+            ## ⚠️ 首次打开会被系统拦住
+
+            本项目没有 Apple 开发者账号（$99/年），所以 app **未经过公证**。
+            从网上下载的未公证 app 会被 Gatekeeper 拦截，这是正常现象，不是软件损坏。
+
+            打开 DMG，把 MacAwake 拖进「应用程序」，然后**任选一种**放行：
+
+            **方法一（推荐，一条命令）**
+            ```bash
+            xattr -dr com.apple.quarantine /Applications/MacAwake.app
+            ```
+            之后双击即可正常打开。
+
+            **方法二（图形界面）**
+            先双击一次 MacAwake（会弹出警告，点「完成」），
+            再到「系统设置 › 隐私与安全性」，往下找到 MacAwake 那一条，点「仍要打开」。
