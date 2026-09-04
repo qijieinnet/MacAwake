@@ -1,4 +1,5 @@
 import Foundation
+import CoreGraphics
 import IOKit.pwr_mgt
 
 /// 通过 IOKit 电源断言阻止系统 / 屏幕进入闲置休眠。
@@ -70,6 +71,15 @@ final class PowerAssertionManager {
     deinit { releaseAll() }
 
     /// 立即让 Mac 进入睡眠。pmset sleepnow 不需要管理员权限。
+    /// 屏幕是否已锁定（锁屏、屏保带密码、切到登录窗口都算）。
+    /// 走 CGSessionCopyCurrentDictionary，不需要任何授权。
+    static var screenIsLocked: Bool {
+        guard let info = CGSessionCopyCurrentDictionary() as? [String: Any] else { return false }
+        if let locked = info["CGSSessionScreenIsLocked"] as? Bool { return locked }
+        if let locked = info["CGSSessionScreenIsLocked"] as? NSNumber { return locked.boolValue }
+        return false
+    }
+
     static func sleepNow() {
         let pmset = Process()
         pmset.executableURL = URL(fileURLWithPath: "/usr/bin/pmset")

@@ -19,6 +19,8 @@ struct ModeSection: View {
             .labelsHidden()
 
             switch state.settings.mode {
+            case .scheduled:
+                scheduleControls
             case .duration:
                 durationControls
             case .untilTime:
@@ -44,9 +46,34 @@ struct ModeSection: View {
             Toggle("同时保持屏幕常亮", isOn: $state.settings.keepDisplayAwake)
                 .toggleStyle(.checkbox).font(.system(size: 12))
 
-            Toggle("到点后立即让 Mac 睡眠", isOn: $state.settings.sleepAtDeadline)
+            if state.settings.mode != .scheduled {
+                Toggle("到点后立即让 Mac 睡眠", isOn: $state.settings.sleepAtDeadline)
+                    .toggleStyle(.checkbox).font(.system(size: 12))
+                    .disabled(state.settings.mode == .off || state.settings.mode == .indefinite)
+            }
+        }
+    }
+
+    /// 定时休眠：一组休眠时段，时段外保持唤醒
+    private var scheduleControls: some View {
+        VStack(alignment: .leading, spacing: 7) {
+            ForEach(state.settings.sleepWindows) { window in
+                SleepWindowRow(window: state.binding(for: window),
+                               removable: state.settings.sleepWindows.count > 1) {
+                    state.removeSleepWindow(window)
+                }
+            }
+
+            Button {
+                state.addSleepWindow()
+            } label: {
+                Label("添加时段", systemImage: "plus")
+                    .font(.system(size: 11))
+            }
+            .buttonStyle(.borderless)
+
+            Toggle("锁屏后才休眠", isOn: $state.settings.sleepRequireScreenLocked)
                 .toggleStyle(.checkbox).font(.system(size: 12))
-                .disabled(state.settings.mode == .off || state.settings.mode == .indefinite)
         }
     }
 
@@ -78,7 +105,7 @@ struct ModeSection: View {
 
     private var timeControls: some View {
         HStack(spacing: 6) {
-            Text("休眠时刻").font(.system(size: 11)).foregroundStyle(.secondary)
+            Text("时段起点").font(.system(size: 11)).foregroundStyle(.secondary)
             Stepper(value: Binding(
                 get: { state.settings.untilHour },
                 set: { state.startUntilTime(hour: $0, minute: state.settings.untilMinute) }
@@ -105,4 +132,75 @@ struct ModeSection: View {
         f.dateFormat = "M月d日 HH:mm"
         return f
     }()
+}
+
+/// 一条休眠时段：起点 + 长度 + 重复规则
+struct SleepWindowRow: View {
+    @Binding var window: SleepWindow
+    let removable: Bool
+    let onRemove: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 5) {
+            HStack(spacing: 6) {
+                Toggle("", isOn: $window.enabled)
+                    .toggleStyle(.checkbox).labelsHidden()
+                Text(window.rangeText)
+                    .font(.system(size: 12, weight: .medium).monospacedDigit())
+                Spacer()
+                if removable {
+                    Button {
+                        onRemove()
+                    } label: {
+                        Image(systemName: "minus.circle").font(.system(size: 11))
+                    }
+                    .buttonStyle(.borderless)
+                    .foregroundStyle(.secondary)
+                }
+            }
+
+            HStack(spacing: 6) {
+                Picker("", selection: $window.repeatRule) {
+                    ForEach(SleepWindow.RepeatRule.allCases) { rule in
+                        Text(rule.title).tag(rule)
+                    }
+                }
+                .pickerStyle(.segmented).labelsHidden().frame(width: 96)
+
+                if window.repeatRule == .weekly {
+                    ForEach(1...7, id: \.self) { weekday in
+                        let selected = window.weekdays.contains(weekday)
+                        Button(SleepWindow.weekdaySymbols[weekday - 1]) {
+                            if selected { window.weekdays.remove(weekday) }
+                            else { window.weekdays.insert(weekday) }
+                        }
+                        .buttonStyle(.bordered)
+                        .controlSize(.mini)
+                        .tint(selected ? .accentColor : nil)
+                    }
+                }
+            }
+
+            HStack(spacing: 6) {
+                Stepper(value: $window.hour, in: 0...23) {
+                    Text(String(format: "%02d 时", window.hour))
+                        .font(.system(size: 11).monospacedDigit())
+                }
+                Stepper(value: $window.minute, in: 0...59, step: 5) {
+                    Text(String(format: "%02d 分", window.minute))
+                        .font(.system(size: 11).monospacedDigit())
+                }
+                Text("持续").font(.system(size: 11)).foregroundStyle(.secondary)
+                Picker("", selection: $window.lengthMinutes) {
+                    ForEach(SleepWindow.lengthPresets, id: \.self) { minutes in
+                        Text(SleepWindow.lengthLabel(minutes)).tag(minutes)
+                    }
+                }
+                .pickerStyle(.menu).labelsHidden().frame(width: 84)
+            }
+        }
+        .padding(7)
+        .background(Color.secondary.opacity(0.07), in: RoundedRectangle(cornerRadius: 6))
+        .opacity(window.enabled ? 1 : 0.5)
+    }
 }

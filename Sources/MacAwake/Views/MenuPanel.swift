@@ -57,12 +57,14 @@ struct MenuPanel: View {
                 Circle()
                     .fill(state.isHolding ? Color.accentColor.opacity(0.18) : Color.secondary.opacity(0.14))
                     .frame(width: 34, height: 34)
-                Image(systemName: state.iconName)
+                Image(systemName: state.isHolding
+                      ? state.iconName
+                      : (state.settings.mode == .scheduled ? "calendar" : state.iconName))
                     .font(.system(size: 15, weight: .medium))
                     .foregroundStyle(state.isHolding ? Color.accentColor : Color.secondary)
             }
             VStack(alignment: .leading, spacing: 2) {
-                Text(state.isHolding ? "保持唤醒中" : "允许休眠")
+                Text(state.headline)
                     .font(.system(size: 13, weight: .semibold))
                 Text(state.summary)
                     .font(.system(size: 11))
