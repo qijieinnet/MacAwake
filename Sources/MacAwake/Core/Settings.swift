@@ -109,6 +109,11 @@ struct AppSettings: Codable {
     var keepDisplayAwake: Bool = false
     var sleepAtDeadline: Bool = false
 
+    /// 盒盖不休眠。独立于上面的模式：打开后不管有没有别的保持唤醒理由，合盖都不休眠。
+    /// 真正的开关在系统里（pmset disablesleep），这里只记用户的意图，
+    /// 启动时以系统实际状态为准回填。
+    var lidGuardEnabled: Bool = false
+
     // 定期休眠
     var sleepWindows: [SleepWindow] = [SleepWindow.makeDefault()]
     /// 只在屏幕已锁定时才休眠，避免把正在用电脑的人直接睡掉。对所有时段生效。
@@ -168,6 +173,7 @@ struct AppSettings: Codable {
         untilMinute = v(.untilMinute, d.untilMinute)
         keepDisplayAwake = v(.keepDisplayAwake, d.keepDisplayAwake)
         sleepAtDeadline = v(.sleepAtDeadline, d.sleepAtDeadline)
+        lidGuardEnabled = v(.lidGuardEnabled, d.lidGuardEnabled)
         sleepWindows = v(.sleepWindows, d.sleepWindows)
         sleepRequireScreenLocked = v(.sleepRequireScreenLocked, d.sleepRequireScreenLocked)
         agentEnabled = v(.agentEnabled, d.agentEnabled)

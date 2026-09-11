@@ -48,7 +48,10 @@ struct MenuPanel: View {
             footer
         }
         .frame(width: 380)
-        .onAppear { state.refreshHookStatus() }
+        .onAppear {
+            state.refreshHookStatus()
+            state.syncLidGuardState()
+        }
     }
 
     private var header: some View {
@@ -100,6 +103,20 @@ struct MenuPanel: View {
                             .foregroundStyle(.secondary)
                         Spacer()
                     }
+                }
+                Divider()
+            }
+            if state.lidGuardActive {
+                HStack(spacing: 6) {
+                    Image(systemName: "laptopcomputer")
+                        .font(.system(size: 10))
+                        .foregroundStyle(Color.orange)
+                        .frame(width: 14)
+                    Text("盒盖不休眠").font(.system(size: 11))
+                    Text("系统级，需手动关闭")
+                        .font(.system(size: 10))
+                        .foregroundStyle(.secondary)
+                    Spacer()
                 }
                 Divider()
             }

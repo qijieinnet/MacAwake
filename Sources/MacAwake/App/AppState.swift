@@ -42,6 +42,8 @@ final class AppState: ObservableObject {
     @Published private(set) var isHolding = false
     @Published private(set) var hookStatuses: [HookTarget: HookInstaller.Status] = [:]
     @Published var lastError: String?
+    /// 系统层面是否已禁用休眠（盒盖不休眠）。以系统实际状态为准，不是配置里的意图。
+    @Published private(set) var lidGuardActive = false
     /// 计划已到点但还没执行时，卡在哪个条件上
     @Published private(set) var scheduleBlocker: String?
 
@@ -63,6 +65,7 @@ final class AppState: ObservableObject {
         settings.launchAtLogin = LoginItem.isEnabled()
         agentDetector.configure(settings: settings)
         expireDeadlineIfPassed()
+        syncLidGuardState()
         if settings.mode == .scheduled { rebaseSchedule() }
         evaluate()
 
@@ -426,6 +429,26 @@ final class AppState: ObservableObject {
     func resetAgentSignals() {
         AgentDetector.clearSignals()
         evaluate()
+    }
+
+    // MARK: - 盒盖不休眠
+
+    /// 系统级设置可能被外部改掉（别的工具、手动 pmset），所以开面板时回读一次对齐 UI。
+    func syncLidGuardState() {
+        let active = LidGuard.isActive
+        if lidGuardActive != active { lidGuardActive = active }
+        if settings.lidGuardEnabled != active { settings.lidGuardEnabled = active }
+    }
+
+    /// 弹系统管理员授权框改 pmset disablesleep。取消或失败都不改开关状态。
+    func setLidGuard(_ enabled: Bool) {
+        do {
+            try LidGuard.set(enabled)
+            lastError = nil
+        } catch {
+            lastError = error.localizedDescription
+        }
+        syncLidGuardState()
     }
 
     // MARK: - 登录项
