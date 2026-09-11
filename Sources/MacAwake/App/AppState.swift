@@ -44,6 +44,8 @@ final class AppState: ObservableObject {
     @Published var lastError: String?
     /// 系统层面是否已禁用休眠（盒盖不休眠）。以系统实际状态为准，不是配置里的意图。
     @Published private(set) var lidGuardActive = false
+    /// 面板可用的最大高度。由 StatusItemController 按状态栏按钮所在那块屏算好写进来。
+    @Published var panelMaxHeight: CGFloat = 560
     /// 计划已到点但还没执行时，卡在哪个条件上
     @Published private(set) var scheduleBlocker: String?
 

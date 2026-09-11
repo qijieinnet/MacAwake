@@ -17,6 +17,7 @@ final class StatusItemController: NSObject {
     private let state: AppState
     private let statusItem: NSStatusItem
     private let popover = NSPopover()
+    private var hosting: NSHostingController<AnyView>?
     private var cancellables = Set<AnyCancellable>()
 
     init(state: AppState) {
@@ -27,9 +28,25 @@ final class StatusItemController: NSObject {
         // variableLength 每次换图都会触发整条状态栏重排；没有文字时固定宽度，省掉这笔开销
         statusItem.length = 26
         configureButton()
+        syncPanelMaxHeight()
         configurePopover()
         observe()
         refreshStaticIcon()
+
+        // 接显示器 / 改分辨率 / Dock 变化都会改可用高度
+        NotificationCenter.default.addObserver(
+            self, selector: #selector(syncPanelMaxHeight),
+            name: NSApplication.didChangeScreenParametersNotification, object: nil)
+    }
+
+    /// 面板高度必须按**状态栏按钮所在那块屏**来算：NSScreen.main 是键窗口那块屏，
+    /// 多屏时会算错。面板一旦比屏幕高，NSPopover 就会放弃 .maxY 换到侧边弹，
+    /// 箭头对不上按钮。留 24pt 给箭头和上下边距。
+    @objc private func syncPanelMaxHeight() {
+        let screen = statusItem.button?.window?.screen ?? NSScreen.main
+        guard let screen else { return }
+        let available = max(320, screen.visibleFrame.height - 24)
+        if state.panelMaxHeight != available { state.panelMaxHeight = available }
     }
 
     // MARK: - 状态栏按钮
@@ -42,12 +59,28 @@ final class StatusItemController: NSObject {
     }
 
     private func configurePopover() {
-        let panel = MenuPanel().environmentObject(state)
-        let hosting = NSHostingController(rootView: panel)
+        let hosting = NSHostingController(rootView: AnyView(MenuPanel().environmentObject(state)))
         hosting.sizingOptions = [.preferredContentSize]
+        self.hosting = hosting
         popover.contentViewController = hosting
         popover.behavior = .transient
         popover.animates = false
+        // 先把视图载进来并跑一遍布局。NSHostingController 的 view 是懒加载的，
+        // 不预热的话第一次 show 时内容还没定尺寸，AppKit 会按临时尺寸定位，
+        // 等内容涨起来再 resize —— 窗口和箭头就对不上状态栏按钮了。
+        prepareContentSize()
+    }
+
+    /// 用内容的真实尺寸喂给 popover，保证 show 之前 contentSize 已经是最终值。
+    /// 再按屏幕硬夹一次：布局万一还是超了，宁可裁掉几点，也不能让 popover 换边。
+    private func prepareContentSize() {
+        guard let hosting else { return }
+        hosting.view.layoutSubtreeIfNeeded()
+        let fitting = hosting.view.fittingSize
+        guard fitting.width > 0, fitting.height > 0 else { return }
+        let size = NSSize(width: fitting.width,
+                          height: min(fitting.height, state.panelMaxHeight))
+        if popover.contentSize != size { popover.contentSize = size }
     }
 
     @objc private func togglePopover() {
@@ -56,6 +89,8 @@ final class StatusItemController: NSObject {
             popover.performClose(nil)
         } else {
             state.refreshHookStatus()
+            syncPanelMaxHeight()
+            prepareContentSize()
             popover.show(relativeTo: button.bounds, of: button, preferredEdge: .maxY)
             popover.contentViewController?.view.window?.makeKey()
         }
@@ -65,7 +100,13 @@ final class StatusItemController: NSObject {
     func debugShowPopover() -> String {
         togglePopover()
         let size = popover.contentViewController?.view.fittingSize ?? .zero
-        return "isShown=\(popover.isShown) contentSize=\(Int(size.width))x\(Int(size.height))"
+        let buttonRect = statusItem.button.flatMap { b in
+            b.window?.convertToScreen(b.convert(b.bounds, to: nil))
+        } ?? .zero
+        let popRect = popover.contentViewController?.view.window?.frame ?? .zero
+        return "isShown=\(popover.isShown) fitting=\(Int(size.width))x\(Int(size.height))"
+            + " popoverContentSize=\(Int(popover.contentSize.width))x\(Int(popover.contentSize.height))"
+            + " button=\(buttonRect) popWindow=\(popRect)"
     }
 
     // MARK: - 图标

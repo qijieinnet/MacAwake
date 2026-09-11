@@ -10,20 +10,41 @@ private struct ContentHeightKey: PreferenceKey {
     }
 }
 
+/// 头尾两栏的实测高度之和。面板整体高度不能超过屏幕，否则 NSPopover 会放弃
+/// preferredEdge 换到侧边去，箭头就对不上状态栏按钮了——所以要把留给
+/// ScrollView 的高度算准，而不是减一个拍脑袋的常数。
+private struct ChromeHeightKey: PreferenceKey {
+    static var defaultValue: CGFloat = 0
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        value += nextValue()
+    }
+}
+
+private struct MeasureHeight: ViewModifier {
+    func body(content: Content) -> some View {
+        content.background(
+            GeometryReader { geometry in
+                Color.clear.preference(key: ChromeHeightKey.self, value: geometry.size.height)
+            }
+        )
+    }
+}
+
 struct MenuPanel: View {
     @EnvironmentObject private var state: AppState
     @State private var contentHeight: CGFloat = 0
+    @State private var chromeHeight: CGFloat = 0
 
-    /// 一直用到屏幕底部才出滚动条。visibleFrame 已经排除了菜单栏和 Dock，
-    /// 再减去面板自己的头尾两栏和一点余量。
-    private var maxPanelHeight: CGFloat {
-        guard let screen = NSScreen.main else { return 540 }
-        return max(320, screen.visibleFrame.height - 130)
+    /// 一直用到屏幕底部才出滚动条。可用高度由 StatusItemController 按
+    /// 状态栏按钮所在那块屏算好塞进来（NSScreen.main 是键窗口那块屏，多屏时是错的），
+    /// 这里再扣掉实测的头尾两栏。
+    private var maxScrollHeight: CGFloat {
+        max(160, state.panelMaxHeight - chromeHeight)
     }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            header
+            header.modifier(MeasureHeight())
             Divider()
             ScrollView {
                 VStack(alignment: .leading, spacing: 14) {
@@ -42,12 +63,15 @@ struct MenuPanel: View {
                     }
                 )
             }
-            .frame(height: min(max(contentHeight, 200), maxPanelHeight))
+            .frame(height: min(max(contentHeight, 160), maxScrollHeight))
             .onPreferenceChange(ContentHeightKey.self) { contentHeight = $0 }
             Divider()
-            footer
+            footer.modifier(MeasureHeight())
         }
         .frame(width: 380)
+        // 头尾两栏是 ScrollView 的兄弟节点，preference 只沿自己子树上冒，
+        // 所以这个观察必须挂在外层 VStack 上，挂 ScrollView 上永远收到 0。
+        .onPreferenceChange(ChromeHeightKey.self) { chromeHeight = $0 }
         .onAppear {
             state.refreshHookStatus()
             state.syncLidGuardState()
