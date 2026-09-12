@@ -5,8 +5,6 @@ struct ModeSection: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 9) {
-            SectionHeader(icon: "powersleep", title: "休眠控制")
-
             Picker("", selection: Binding(
                 get: { state.settings.mode },
                 set: { state.setMode($0) }
