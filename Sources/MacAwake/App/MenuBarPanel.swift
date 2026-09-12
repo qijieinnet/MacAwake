@@ -29,3 +29,27 @@ extension NSImage {
         return image
     }
 }
+
+/// 只画一圈描边的透明覆盖层。NSPopover 自带这圈线，少了边缘会糊在背景上。
+final class BorderOverlayView: NSView {
+    private let radius: CGFloat
+
+    init(radius: CGFloat) {
+        self.radius = radius
+        super.init(frame: .zero)
+    }
+
+    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+
+    /// 描边盖在内容之上，但不能挡住底下控件的点击
+    override func hitTest(_ point: NSPoint) -> NSView? { nil }
+
+    override func draw(_ dirtyRect: NSRect) {
+        let inset = bounds.insetBy(dx: 0.5, dy: 0.5)
+        let path = NSBezierPath(roundedRect: inset,
+                                xRadius: radius - 0.5, yRadius: radius - 0.5)
+        path.lineWidth = 1
+        NSColor.separatorColor.setStroke()
+        path.stroke()
+    }
+}

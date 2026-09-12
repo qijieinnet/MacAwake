@@ -14,6 +14,9 @@ final class StatusItemController: NSObject {
 
     static let dryRun = ProcessInfo.processInfo.environment["MACAWAKE_ANIM_DRYRUN"] == "1"
 
+    /// 和 NSPopover 的圆角对齐
+    static let cornerRadius: CGFloat = 10
+
     private let state: AppState
     private let statusItem: NSStatusItem
     private let panel: MenuBarPanel
@@ -75,12 +78,14 @@ final class StatusItemController: NSObject {
     // MARK: - 面板
 
     private func configurePanel() {
-        // SwiftUI 侧不画背景，毛玻璃由这层提供，圆角靠 maskImage
+        // SwiftUI 侧不画背景，毛玻璃由这层提供，圆角靠 maskImage。
+        // 材质必须用 .popover：.menu 在浅色外观下几乎不透明，看起来就是块白板；
+        // .popover 才是 NSPopover 原来那种通透带背景色调的效果。
         let effect = NSVisualEffectView()
-        effect.material = .menu
+        effect.material = .popover
         effect.blendingMode = .behindWindow
         effect.state = .active
-        effect.maskImage = .roundedMask(radius: 10)
+        effect.maskImage = .roundedMask(radius: Self.cornerRadius)
 
         let host = NSHostingView(rootView: AnyView(MenuPanel().environmentObject(state)))
         host.translatesAutoresizingMaskIntoConstraints = false
@@ -92,6 +97,17 @@ final class StatusItemController: NSObject {
             host.bottomAnchor.constraint(equalTo: effect.bottomAnchor),
         ])
         hosting = host
+
+        // NSPopover 自带一圈细描边，没有它边缘会糊在背景上
+        let border = BorderOverlayView(radius: Self.cornerRadius)
+        border.translatesAutoresizingMaskIntoConstraints = false
+        effect.addSubview(border)
+        NSLayoutConstraint.activate([
+            border.leadingAnchor.constraint(equalTo: effect.leadingAnchor),
+            border.trailingAnchor.constraint(equalTo: effect.trailingAnchor),
+            border.topAnchor.constraint(equalTo: effect.topAnchor),
+            border.bottomAnchor.constraint(equalTo: effect.bottomAnchor),
+        ])
 
         panel.contentView = effect
         panel.isOpaque = false
@@ -121,6 +137,10 @@ final class StatusItemController: NSObject {
         panel.layoutIfNeeded()
         repositionPanel()
         panel.makeKeyAndOrderFront(nil)
+        // 成为 key window 时 AppKit 会把第一响应者指派给第一个可聚焦控件，
+        // 于是「任务结束后再保持」那个输入框一开面板就被选中了。
+        // 交还给窗口本身，等用户自己点进去再聚焦。
+        panel.makeFirstResponder(nil)
         statusItem.button?.highlight(true)
         installMonitors()
     }
@@ -182,8 +202,9 @@ final class StatusItemController: NSObject {
             b.window?.convertToScreen(b.convert(b.bounds, to: nil))
         } ?? .zero
         let visible = (statusItem.button?.window?.screen ?? NSScreen.main)?.visibleFrame ?? .zero
+        let responder = panel.firstResponder.map { String(describing: type(of: $0)) } ?? "nil"
         return "isShown=\(panel.isVisible) button=\(anchor) panel=\(panel.frame)"
-            + " visibleFrameMaxY=\(visible.maxY)"
+            + " visibleFrameMaxY=\(visible.maxY) firstResponder=\(responder)"
     }
 
     // MARK: - 图标
