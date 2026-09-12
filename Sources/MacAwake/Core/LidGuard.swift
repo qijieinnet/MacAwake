@@ -21,11 +21,14 @@ enum LidGuard {
         }
     }
 
-    /// 系统当前是否已禁用休眠。disablesleep 为 1 时 `pmset -g` 会多出一行 SleepDisabled。
+    /// 系统当前是否已禁用休眠。disablesleep 为 1 时 `pmset -g` 会在
+    /// "System-wide power settings:" 下多出一行 SleepDisabled。
+    /// 注意这一行是 **Tab** 分隔的（只有下面 "Currently in use" 那几行才用空格对齐），
+    /// 所以必须按任意空白切，按 " " 切会整行原样返回。
     static var isActive: Bool {
         guard let output = capture("/usr/bin/pmset", ["-g"]) else { return false }
         for line in output.split(separator: "\n") where line.contains("SleepDisabled") {
-            return line.split(separator: " ").last.map { $0 == "1" } ?? false
+            return line.split(whereSeparator: \.isWhitespace).last == "1"
         }
         return false
     }
