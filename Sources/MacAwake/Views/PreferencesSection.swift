@@ -5,8 +5,6 @@ struct PreferencesSection: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 9) {
-            SectionHeader(icon: "gearshape", title: "偏好")
-
             Toggle("开机自动启动", isOn: Binding(
                 get: { state.settings.launchAtLogin },
                 set: { state.setLaunchAtLogin($0) }
