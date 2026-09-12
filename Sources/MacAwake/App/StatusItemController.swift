@@ -2,13 +2,13 @@ import AppKit
 import SwiftUI
 import Combine
 
-/// 用 NSStatusItem + NSPopover 取代 SwiftUI 的 MenuBarExtra。
+/// 用 NSStatusItem + 自管的 MenuBarPanel 取代 SwiftUI 的 MenuBarExtra。
 ///
-/// 换掉它有两个理由：
-///  1. MenuBarExtra 每次 label 变化都要重建状态栏项，实测单帧约 11ms，
-///     3fps 的走动动画就要 3.4% CPU。直接给 button.image 赋值是亚毫秒操作。
-///  2. MenuBarExtra 的面板尺寸不可控 —— ScrollView 在里面会塌成 0 高度，
-///     只能靠测量内容再回填 frame。NSPopover 可以直接指定 contentSize。
+/// 不用 MenuBarExtra：每次 label 变化都要重建状态栏项，实测单帧约 11ms，
+/// 3fps 的走动动画就要 3.4% CPU。直接给 button.image 赋值是亚毫秒操作。
+///
+/// 也不用 NSPopover：去不掉顶部箭头，而且位置由它自己决定——内容比屏幕高时
+/// 会放弃 preferredEdge 改从侧边弹。面板位置这里全部自己算。
 @MainActor
 final class StatusItemController: NSObject {
 
@@ -16,20 +16,29 @@ final class StatusItemController: NSObject {
 
     private let state: AppState
     private let statusItem: NSStatusItem
-    private let popover = NSPopover()
-    private var hosting: NSHostingController<AnyView>?
+    private let panel: MenuBarPanel
+    private var hosting: NSHostingView<AnyView>?
     private var cancellables = Set<AnyCancellable>()
+    /// 面板显示期间才挂：全局点击用来点外面关掉，本地按键用来吃 Esc
+    private var outsideClickMonitor: Any?
+    private var escMonitor: Any?
+    /// 面板可见时的水平位置基准，resize 后要照着它重新贴回菜单栏下沿
+    private var isPanelVisible: Bool { panel.isVisible }
 
     init(state: AppState) {
         self.state = state
         self.statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
+        self.panel = MenuBarPanel(
+            contentRect: NSRect(x: 0, y: 0, width: 380, height: 200),
+            styleMask: [.borderless, .nonactivatingPanel],
+            backing: .buffered, defer: false)
         super.init()
 
         // variableLength 每次换图都会触发整条状态栏重排；没有文字时固定宽度，省掉这笔开销
         statusItem.length = 26
         configureButton()
         syncPanelMaxHeight()
-        configurePopover()
+        configurePanel()
         observe()
         refreshStaticIcon()
 
@@ -37,15 +46,20 @@ final class StatusItemController: NSObject {
         NotificationCenter.default.addObserver(
             self, selector: #selector(syncPanelMaxHeight),
             name: NSApplication.didChangeScreenParametersNotification, object: nil)
+        // 内容变高时 AppKit 保持窗口左下角不动，会把顶边顶到菜单栏里去，
+        // 所以每次 resize 都要重新贴一次
+        NotificationCenter.default.addObserver(
+            self, selector: #selector(repositionPanel),
+            name: NSWindow.didResizeNotification, object: panel)
     }
 
     /// 面板高度必须按**状态栏按钮所在那块屏**来算：NSScreen.main 是键窗口那块屏，
-    /// 多屏时会算错。面板一旦比屏幕高，NSPopover 就会放弃 .maxY 换到侧边弹，
-    /// 箭头对不上按钮。留 24pt 给箭头和上下边距。
+    /// 多屏时会算错。visibleFrame 已经排除了菜单栏和 Dock，顶边正好贴菜单栏下沿，
+    /// 只需要再给底部留一点余量。
     @objc private func syncPanelMaxHeight() {
         let screen = statusItem.button?.window?.screen ?? NSScreen.main
         guard let screen else { return }
-        let available = max(320, screen.visibleFrame.height - 24)
+        let available = max(320, screen.visibleFrame.height - 8)
         if state.panelMaxHeight != available { state.panelMaxHeight = available }
     }
 
@@ -54,59 +68,122 @@ final class StatusItemController: NSObject {
     private func configureButton() {
         guard let button = statusItem.button else { return }
         button.target = self
-        button.action = #selector(togglePopover)
+        button.action = #selector(togglePanel)
         button.imagePosition = .imageLeading
     }
 
-    private func configurePopover() {
-        let hosting = NSHostingController(rootView: AnyView(MenuPanel().environmentObject(state)))
-        hosting.sizingOptions = [.preferredContentSize]
-        self.hosting = hosting
-        popover.contentViewController = hosting
-        popover.behavior = .transient
-        popover.animates = false
-        // 先把视图载进来并跑一遍布局。NSHostingController 的 view 是懒加载的，
-        // 不预热的话第一次 show 时内容还没定尺寸，AppKit 会按临时尺寸定位，
-        // 等内容涨起来再 resize —— 窗口和箭头就对不上状态栏按钮了。
-        prepareContentSize()
+    // MARK: - 面板
+
+    private func configurePanel() {
+        // SwiftUI 侧不画背景，毛玻璃由这层提供，圆角靠 maskImage
+        let effect = NSVisualEffectView()
+        effect.material = .menu
+        effect.blendingMode = .behindWindow
+        effect.state = .active
+        effect.maskImage = .roundedMask(radius: 10)
+
+        let host = NSHostingView(rootView: AnyView(MenuPanel().environmentObject(state)))
+        host.translatesAutoresizingMaskIntoConstraints = false
+        effect.addSubview(host)
+        NSLayoutConstraint.activate([
+            host.leadingAnchor.constraint(equalTo: effect.leadingAnchor),
+            host.trailingAnchor.constraint(equalTo: effect.trailingAnchor),
+            host.topAnchor.constraint(equalTo: effect.topAnchor),
+            host.bottomAnchor.constraint(equalTo: effect.bottomAnchor),
+        ])
+        hosting = host
+
+        panel.contentView = effect
+        panel.isOpaque = false
+        panel.backgroundColor = .clear
+        panel.hasShadow = true
+        // 和状态栏菜单同级，压住普通窗口
+        panel.level = .statusBar
+        panel.hidesOnDeactivate = false
+        panel.isMovable = false
+        panel.isReleasedWhenClosed = false
+        panel.animationBehavior = .none
+        panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .ignoresCycle]
     }
 
-    /// 用内容的真实尺寸喂给 popover，保证 show 之前 contentSize 已经是最终值。
-    /// 再按屏幕硬夹一次：布局万一还是超了，宁可裁掉几点，也不能让 popover 换边。
-    private func prepareContentSize() {
-        guard let hosting else { return }
-        hosting.view.layoutSubtreeIfNeeded()
-        let fitting = hosting.view.fittingSize
-        guard fitting.width > 0, fitting.height > 0 else { return }
-        let size = NSSize(width: fitting.width,
-                          height: min(fitting.height, state.panelMaxHeight))
-        if popover.contentSize != size { popover.contentSize = size }
+    @objc private func togglePanel() {
+        isPanelVisible ? hidePanel() : showPanel()
     }
 
-    @objc private func togglePopover() {
-        guard let button = statusItem.button else { return }
-        if popover.isShown {
-            popover.performClose(nil)
-        } else {
-            state.refreshHookStatus()
-            syncPanelMaxHeight()
-            prepareContentSize()
-            popover.show(relativeTo: button.bounds, of: button, preferredEdge: .maxY)
-            popover.contentViewController?.view.window?.makeKey()
+    private func showPanel() {
+        // NSPopover 每次 show/close 都会把视图挂上/摘下窗口，onAppear 因此每次都触发；
+        // 自管面板只是 orderOut，视图一直挂着，onAppear 只会触发一次，
+        // 所以每次开面板要刷新的状态得在这里主动调。
+        state.refreshHookStatus()
+        state.syncLidGuardState()
+        syncPanelMaxHeight()
+        // NSHostingView 的尺寸要先跑一遍布局才算得准，否则第一次定位会用到临时尺寸
+        panel.layoutIfNeeded()
+        repositionPanel()
+        panel.makeKeyAndOrderFront(nil)
+        statusItem.button?.highlight(true)
+        installMonitors()
+    }
+
+    private func hidePanel() {
+        removeMonitors()
+        panel.orderOut(nil)
+        statusItem.button?.highlight(false)
+    }
+
+    /// 水平对齐状态栏按钮中心，顶边贴 visibleFrame 上沿（也就是菜单栏正下方）。
+    /// 按钮靠近屏幕左右边缘时把面板夹回屏内，留 8pt 边距。
+    @objc private func repositionPanel() {
+        guard let button = statusItem.button,
+              let buttonWindow = button.window,
+              let screen = buttonWindow.screen ?? NSScreen.main else { return }
+        let anchor = buttonWindow.convertToScreen(button.convert(button.bounds, to: nil))
+        let visible = screen.visibleFrame
+        let size = panel.frame.size
+        let minX = visible.minX + 8
+        let maxX = max(minX, visible.maxX - size.width - 8)
+        let x = min(max(anchor.midX - size.width / 2, minX), maxX)
+        let origin = NSPoint(x: x, y: visible.maxY - size.height)
+        if panel.frame.origin != origin { panel.setFrameOrigin(origin) }
+    }
+
+    // MARK: - 关闭时机
+
+    private func installMonitors() {
+        // 全局监视只收得到**别的 App**的点击，我们自己的面板和状态栏按钮都不会触发，
+        // 所以不用额外判断点在哪，也不会出现「点按钮先关再开」的抖动
+        if outsideClickMonitor == nil {
+            outsideClickMonitor = NSEvent.addGlobalMonitorForEvents(
+                matching: [.leftMouseDown, .rightMouseDown]
+            ) { [weak self] _ in
+                Task { @MainActor in self?.hidePanel() }
+            }
+        }
+        if escMonitor == nil {
+            escMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+                guard event.keyCode == 53 else { return event }   // Esc
+                Task { @MainActor in self?.hidePanel() }
+                return nil
+            }
         }
     }
 
-    /// 供调试验证用：不经过鼠标点击也能确认弹窗能正常显示
+    private func removeMonitors() {
+        if let outsideClickMonitor { NSEvent.removeMonitor(outsideClickMonitor) }
+        if let escMonitor { NSEvent.removeMonitor(escMonitor) }
+        outsideClickMonitor = nil
+        escMonitor = nil
+    }
+
+    /// 供调试验证用：不经过鼠标点击也能确认面板位置
     func debugShowPopover() -> String {
-        togglePopover()
-        let size = popover.contentViewController?.view.fittingSize ?? .zero
-        let buttonRect = statusItem.button.flatMap { b in
+        togglePanel()
+        let anchor = statusItem.button.flatMap { b in
             b.window?.convertToScreen(b.convert(b.bounds, to: nil))
         } ?? .zero
-        let popRect = popover.contentViewController?.view.window?.frame ?? .zero
-        return "isShown=\(popover.isShown) fitting=\(Int(size.width))x\(Int(size.height))"
-            + " popoverContentSize=\(Int(popover.contentSize.width))x\(Int(popover.contentSize.height))"
-            + " button=\(buttonRect) popWindow=\(popRect)"
+        let visible = (statusItem.button?.window?.screen ?? NSScreen.main)?.visibleFrame ?? .zero
+        return "isShown=\(panel.isVisible) button=\(anchor) panel=\(panel.frame)"
+            + " visibleFrameMaxY=\(visible.maxY)"
     }
 
     // MARK: - 图标
