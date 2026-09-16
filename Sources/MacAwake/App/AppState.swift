@@ -49,12 +49,15 @@ final class AppState: ObservableObject {
     /// 计划已到点但还没执行时，卡在哪个条件上
     @Published private(set) var scheduleBlocker: String?
 
+    let updater = Updater()
+
     private let store = SettingsStore()
     private let assertions = PowerAssertionManager()
     private let agentDetector = AgentDetector()
     private let serviceDetector = ServiceDetector()
 
     private var tick: Timer?
+    private var updaterObserver: AnyCancellable?
     private var sleepObserver: NSObjectProtocol?
     let animator = IconAnimator()
     private var lastServiceSample = Date.distantPast
@@ -70,6 +73,18 @@ final class AppState: ObservableObject {
         syncLidGuardState()
         if settings.mode == .scheduled { rebaseSchedule() }
         evaluate()
+
+        // 更新器自己有 @Published，但它不是 AppState 的子对象，得手动把变化转发出去
+        updaterObserver = updater.objectWillChange.sink { [weak self] _ in
+            self?.objectWillChange.send()
+        }
+        if settings.autoCheckUpdates {
+            Task { [weak self] in
+                try? await Task.sleep(nanoseconds: 5 * NSEC_PER_SEC)
+                guard let self, self.settings.autoCheckUpdates else { return }
+                self.updater.checkIfDue()
+            }
+        }
 
         tick = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] _ in
             Task { @MainActor in self?.evaluate() }

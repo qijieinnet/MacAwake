@@ -55,6 +55,8 @@ struct MenuPanel: View {
                     ServiceSection()
                     Divider()
                     PreferencesSection()
+                    Divider()
+                    UpdateSection()
                 }
                 .padding(14)
                 .background(
@@ -75,6 +77,7 @@ struct MenuPanel: View {
         .onAppear {
             state.refreshHookStatus()
             state.syncLidGuardState()
+            if state.settings.autoCheckUpdates { state.updater.checkIfDue() }
         }
     }
 

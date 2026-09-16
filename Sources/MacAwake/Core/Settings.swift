@@ -144,6 +144,8 @@ struct AppSettings: Codable {
     var showStatusText: Bool = false
     var iconStyle: IconStyle = .cat
     var animateIcon: Bool = true
+    /// 启动时以及每天静默查一次 GitHub Release，有新版才在面板里提示
+    var autoCheckUpdates: Bool = true
 
     func usesHook(_ target: HookTarget) -> Bool {
         target == .claude ? claudeUseHook : codexUseHook
@@ -190,6 +192,7 @@ struct AppSettings: Codable {
         showStatusText = v(.showStatusText, d.showStatusText)
         iconStyle = v(.iconStyle, d.iconStyle)
         animateIcon = v(.animateIcon, d.animateIcon)
+        autoCheckUpdates = v(.autoCheckUpdates, d.autoCheckUpdates)
     }
 
     static let durationPresets: [Int] = [15, 30, 60, 120, 240, 480]

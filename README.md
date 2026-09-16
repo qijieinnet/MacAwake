@@ -129,6 +129,14 @@ Codex 桌面 app 只在「插件详情页」展示 hooks，没有给用户级 ho
 - 启动和每次打开面板时会回读系统实际状态，外部改动也能反映到界面上
 - 合盖运行时机器散热受限，注意温度和耗电
 
+### 自动更新
+
+- 面板底部有「检查更新」，发现新版可一键更新：下载 → 挂载 DMG → 替换当前 app → 自动重启
+- 更新源就是本仓库的 GitHub Release，优先取 Universal 包
+- 默认每天静默查一次（可关掉），只有真有新版才会在面板里提示
+- 下来的包会自动去掉隔离属性，换上去之后不会再被 Gatekeeper 拦
+- 装在没有写权限的位置（比如别人用管理员拖进 `/Applications` 的）会提示手动下载，不会去要密码
+
 ### 其他
 
 - 开机自启（SMAppService，失败自动回退 LaunchAgent）
@@ -142,6 +150,7 @@ Codex 桌面 app 只在「插件详情页」展示 hooks，没有给用户级 ho
 - 电量过低时系统会强制休眠，断言无效。
 - 服务检测只覆盖 TCP，不含 UDP。
 - 服务检测看不到其他用户（含 root）启动的进程。
+- 自动更新只认正式 Release（草稿和预发布会跳过），且 app 所在目录必须当前用户可写。
 
 ---
 
@@ -191,6 +200,12 @@ git tag v1.0.0 && git push origin v1.0.0
 
 - 用 `IOPMAssertionCreateWithName` 直接持有断言，**不 fork `caffeinate` 子进程** —— 进程退出时内核会自动回收断言，不会出现子进程残留导致 Mac 永不休眠。
 - 断言名称必须是 **ASCII**，非 ASCII 会被系统丢弃成空字符串。这个名字会显示在电池菜单的「正在阻止睡眠的 App」里。
+
+**自动更新**
+
+- 没上 Sparkle：本项目没有 Developer ID，产物是 ad-hoc 签名，Sparkle 还要另外维护 EdDSA 密钥和 appcast.xml，收益不抵成本。GitHub Release 本身就是现成的更新源，查 API + 下 DMG 就够了。
+- **正在运行的 bundle 不能原地覆盖自己**，所以写一个脱离本进程的 sh 脚本：等旧进程退出 → `mv` 旧 bundle 到备份名 → `ditto` 新的进去 → 成功就删备份、失败就把备份挪回来 → `open` 重新拉起。任何一步失败都不会留下一个没有 app 的目录。
+- 下载用 `URLSessionDownloadTask` + delegate，不用 `URLSession.bytes` —— 后者逐字节 await，几 MB 的 DMG 会慢到不可用；而 async/await 版的 `download(for:)` 拿不到进度。
 
 **检测**
 
