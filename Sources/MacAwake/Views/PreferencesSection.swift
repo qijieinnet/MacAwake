@@ -11,6 +11,17 @@ struct PreferencesSection: View {
             ))
             .toggleStyle(.checkbox).font(.system(size: 12))
 
+            Toggle("锁屏后才休眠", isOn: $state.settings.sleepRequireScreenLocked)
+                .toggleStyle(.checkbox).font(.system(size: 12))
+
+            Toggle("同时保持屏幕常亮", isOn: $state.settings.keepDisplayAwake)
+                .toggleStyle(.checkbox).font(.system(size: 12))
+
+            // 只有倒计时和到点两种模式才有「到点」这回事，其余模式下置灰
+            Toggle("到点后立即让 Mac 睡眠", isOn: $state.settings.sleepAtDeadline)
+                .toggleStyle(.checkbox).font(.system(size: 12))
+                .disabled(state.settings.mode != .duration && state.settings.mode != .untilTime)
+
             Toggle("在菜单栏显示倒计时", isOn: $state.settings.showStatusText)
                 .toggleStyle(.checkbox).font(.system(size: 12))
 

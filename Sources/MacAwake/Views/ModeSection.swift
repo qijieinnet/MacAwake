@@ -3,6 +3,16 @@ import SwiftUI
 struct ModeSection: View {
     @EnvironmentObject private var state: AppState
 
+    /// 分段选择器下面有没有东西。跟随系统 / 永不休眠且没有截止时间时只剩一个选择器，
+    /// 这时再跟一条分割线就显得多余，MenuPanel 据此决定要不要画。
+    static func hasControls(_ settings: AppSettings) -> Bool {
+        switch settings.mode {
+        case .scheduled, .duration, .untilTime: return true
+        case .indefinite: return settings.deadline != nil
+        case .off: return false
+        }
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 9) {
             Picker("", selection: Binding(
@@ -40,15 +50,6 @@ struct ModeSection: View {
                         .buttonStyle(.borderless).font(.system(size: 11))
                 }
             }
-
-            Toggle("同时保持屏幕常亮", isOn: $state.settings.keepDisplayAwake)
-                .toggleStyle(.checkbox).font(.system(size: 12))
-
-            if state.settings.mode != .scheduled {
-                Toggle("到点后立即让 Mac 睡眠", isOn: $state.settings.sleepAtDeadline)
-                    .toggleStyle(.checkbox).font(.system(size: 12))
-                    .disabled(state.settings.mode == .off || state.settings.mode == .indefinite)
-            }
         }
     }
 
@@ -69,9 +70,6 @@ struct ModeSection: View {
                     .font(.system(size: 11))
             }
             .buttonStyle(.borderless)
-
-            Toggle("锁屏后才休眠", isOn: $state.settings.sleepRequireScreenLocked)
-                .toggleStyle(.checkbox).font(.system(size: 12))
         }
     }
 

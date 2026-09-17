@@ -78,38 +78,9 @@ final class StatusItemController: NSObject {
     // MARK: - 面板
 
     private func configurePanel() {
-        // SwiftUI 侧不画背景，毛玻璃由这层提供，圆角靠 maskImage。
-        // 材质必须用 .popover：.menu 在浅色外观下几乎不透明，看起来就是块白板；
-        // .popover 才是 NSPopover 原来那种通透带背景色调的效果。
-        let effect = NSVisualEffectView()
-        effect.material = .popover
-        effect.blendingMode = .behindWindow
-        effect.state = .active
-        effect.maskImage = .roundedMask(radius: Self.cornerRadius)
-
         let host = NSHostingView(rootView: AnyView(MenuPanel().environmentObject(state)))
-        host.translatesAutoresizingMaskIntoConstraints = false
-        effect.addSubview(host)
-        NSLayoutConstraint.activate([
-            host.leadingAnchor.constraint(equalTo: effect.leadingAnchor),
-            host.trailingAnchor.constraint(equalTo: effect.trailingAnchor),
-            host.topAnchor.constraint(equalTo: effect.topAnchor),
-            host.bottomAnchor.constraint(equalTo: effect.bottomAnchor),
-        ])
         hosting = host
-
-        // NSPopover 自带一圈细描边，没有它边缘会糊在背景上
-        let border = BorderOverlayView(radius: Self.cornerRadius)
-        border.translatesAutoresizingMaskIntoConstraints = false
-        effect.addSubview(border)
-        NSLayoutConstraint.activate([
-            border.leadingAnchor.constraint(equalTo: effect.leadingAnchor),
-            border.trailingAnchor.constraint(equalTo: effect.trailingAnchor),
-            border.topAnchor.constraint(equalTo: effect.topAnchor),
-            border.bottomAnchor.constraint(equalTo: effect.bottomAnchor),
-        ])
-
-        panel.contentView = effect
+        panel.contentView = Self.makeBackground(hosting: host)
         panel.isOpaque = false
         panel.backgroundColor = .clear
         panel.hasShadow = true
@@ -120,6 +91,50 @@ final class StatusItemController: NSObject {
         panel.isReleasedWhenClosed = false
         panel.animationBehavior = .none
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .ignoresCycle]
+    }
+
+    /// 面板背景。SwiftUI 侧不画背景，全靠这一层。
+    ///
+    /// macOS 26 起系统弹窗、菜单都换成了 Liquid Glass，必须用 NSGlassEffectView 才对得上；
+    /// 旧的 NSVisualEffectView 材质在 26 上只剩一层灰蒙蒙的半透明，跟别的 App 弹窗一比就很突兀。
+    /// Liquid Glass 自带圆角裁切和高光描边，不用再叠 maskImage 和 BorderOverlayView。
+    private static func makeBackground(hosting host: NSView) -> NSView {
+        if #available(macOS 26.0, *) {
+            let glass = NSGlassEffectView()
+            glass.style = .regular
+            glass.cornerRadius = cornerRadius
+            glass.contentView = host
+            return glass
+        }
+
+        // macOS 13–15：材质必须用 .popover。.menu 在浅色外观下几乎不透明，看起来就是块白板；
+        // .popover 才是 NSPopover 原来那种通透带背景色调的效果。圆角靠 maskImage。
+        let effect = NSVisualEffectView()
+        effect.material = .popover
+        effect.blendingMode = .behindWindow
+        effect.state = .active
+        effect.maskImage = .roundedMask(radius: cornerRadius)
+
+        host.translatesAutoresizingMaskIntoConstraints = false
+        effect.addSubview(host)
+        NSLayoutConstraint.activate([
+            host.leadingAnchor.constraint(equalTo: effect.leadingAnchor),
+            host.trailingAnchor.constraint(equalTo: effect.trailingAnchor),
+            host.topAnchor.constraint(equalTo: effect.topAnchor),
+            host.bottomAnchor.constraint(equalTo: effect.bottomAnchor),
+        ])
+
+        // NSPopover 自带一圈细描边，没有它边缘会糊在背景上
+        let border = BorderOverlayView(radius: cornerRadius)
+        border.translatesAutoresizingMaskIntoConstraints = false
+        effect.addSubview(border)
+        NSLayoutConstraint.activate([
+            border.leadingAnchor.constraint(equalTo: effect.leadingAnchor),
+            border.trailingAnchor.constraint(equalTo: effect.trailingAnchor),
+            border.topAnchor.constraint(equalTo: effect.topAnchor),
+            border.bottomAnchor.constraint(equalTo: effect.bottomAnchor),
+        ])
+        return effect
     }
 
     @objc private func togglePanel() {

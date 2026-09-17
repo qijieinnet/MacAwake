@@ -271,7 +271,8 @@ final class Updater: ObservableObject {
     }
 
     /// downloadTask 的进度回调 + 完成回调。URLSession 的 async/await 版本拿不到进度。
-    private final class DownloadDelegate: NSObject, URLSessionDownloadDelegate {
+    /// 可变状态都在锁里（continuation）或只在主流程里写一次（task），所以标 @unchecked。
+    private final class DownloadDelegate: NSObject, URLSessionDownloadDelegate, @unchecked Sendable {
         typealias Continuation = CheckedContinuation<(URL, URLResponse), Error>
 
         weak var task: URLSessionDownloadTask?

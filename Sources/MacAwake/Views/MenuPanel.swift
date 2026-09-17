@@ -49,7 +49,9 @@ struct MenuPanel: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 14) {
                     ModeSection()
-                    Divider()
+                    if ModeSection.hasControls(state.settings) {
+                        Divider()
+                    }
                     AgentSection()
                     Divider()
                     ServiceSection()
